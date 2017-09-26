@@ -1,3 +1,3 @@
 # Courseware
 
-This is the course mateirals and homeword of my course in Fall 2017.
+Here are the course mateirals and homework of my courses in Fall 2017.
