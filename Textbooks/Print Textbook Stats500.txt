@@ -1,0 +1,7 @@
+chap3, inference:  13-32, also 26/284
+chap4, prediction: 33-50
+chap6, diagostics: 73-98
+chap8, problems with predictors: 99-111
+
+
+
