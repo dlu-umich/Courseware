@@ -1,0 +1,146 @@
+---
+title: "STAT509 Homework10"
+author: "RUI XIAO"
+date: "2018/4/10"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Problem 1    
+###(a)
+```{r warning=FALSE, include=FALSE}
+library(fGarch)
+X = read.csv("NYA-2015-2017.csv",header=TRUE)
+log_return = diff(log(X$Adj.Close))
+log_return.ts = ts(data=log_return, start=c(2015,1), frequency=252,names="logret")
+NYA_garch = garchFit(~garch(1,1),data=log_return.ts,cond.dist = c("norm"),include.mean=TRUE,algorithm = c("nlminb"),hessian = c("ropt"))
+half_life = ceiling(1-log(2)/log(NYA_garch@fit$par[3]+NYA_garch@fit$par[4]))
+```
+    
+```{r}
+summary(NYA_garch)
+```
+    
+According to the Error Analysis above, we would know that the standard errors of parameter estimates $\alpha_0$, $\alpha_1$ and $\beta_1$ are 9.672e-07,3.761e-02 and 4.316e-02. The half-life of the volatility is 17.    
+    
+    
+### (b)    
+```{r}
+plot(NYA_garch@sigma.t,type="l",ylab="Sigma")
+plot(NYA_garch@residuals/NYA_garch@sigma.t,type="l",ylab="Residuals")
+```
+    
+###(c)    
+```{r}
+plot(NYA_garch@residuals/NYA_garch@sigma.t,type="l",ylab="Residuals")
+qqnorm(NYA_garch@residuals/NYA_garch@sigma.t)
+qqline(NYA_garch@residuals/NYA_garch@sigma.t)
+summary(NYA_garch)
+```
+    
+According to the results above, we would find that the residuals are not normal and heavy-tailed as it is shown in the QQ plot. The summary table of the model indicates that Ljung-Box Test are not significant, which means the residuals and volatility are not correlated.    
+    
+###(d)    
+```{r warning=FALSE}
+library(mnormt)
+library(MASS)
+residual = NYA_garch@residuals/NYA_garch@sigma.t
+df = seq(2,10,0.01)
+n = length(df)
+loglik_max = rep(0,n)
+for (i in 1:n){
+  fit = cov.trob(residual, nu=df[i])
+  mu = fit$center
+  sigma = fit$cov
+  loglik_max[i] = sum(log(dmt(residual,mean=fit$center,S=fit$cov,df=df[i])))
+}
+nuest = df[which.max(loglik_max)]
+N = length(residual)
+quantv = (1/N)*seq(0.5,N-0.5,1)
+qqnorm(NYA_garch@residuals/NYA_garch@sigma.t,main="QQ plot for normal distribution on Residulas")
+qqline(NYA_garch@residuals/NYA_garch@sigma.t)
+qqplot(qt(quantv,nuest),residual, main="QQ plot for t-distribution on Residulas")
+qqline(residual, distribution = function(p) qt(p,nuest), prob=c(0.1,0.9),col=1)
+```
+    
+According to the results above, we would find the following,    
+In QQ plot for normal distribution, the left tail is heavy-tailed, and the right tail is slightly  heavy.    
+In QQ plot for t-distribution, the left tail is slightly heavy, and the right tail becomes light-tailed.    
+Therefore, we should use GARCH model with t conditional distribution.    
+    
+    
+## Problem 2    
+```{r include=FALSE}
+pred = predict(NYA_garch,n.ahead=5)
+rVaR_norm = 1-exp(qnorm(0.005,pred$meanForecast,pred$standardDeviation))
+garch11_t = garchFit(~garch(1,1),data=log_return.ts,cond.dist = c("std"),include.mean = TRUE,algorithm = c("nlminb"),hessian = c("ropt"))
+predt = predict(garch11_t,n.ahead=5)
+nuest_t=garch11_t@fit$coef[5]
+rVaR_t = 1-exp(predt$meanForecast+predt$standardDeviation*sqrt((nuest_t-2)/nuest_t)*qt(0.005,nuest_t))
+```
+
+    
+```{r}
+rVaR_norm
+rVaR_t
+```
+
+According to the results above, we would know that the relative VaR for the week following the last week of data for q = 0.005 is 0.01308601 if we  assume the white noise process is normal. The relative VaR for the week following the last week of data for q = 0.005 is 0.01328139 if we assume white noise process follows the estimated t-distribution.    
+    
+    
+## Problem 3    
+###(a)    
+We would start with GARCH(1,1) with normal innovation.
+```{r warning=FALSE, include=FALSE}
+NYA_garch = garchFit(~garch(1,1),data=log_return.ts,cond.dist = c("norm"),include.mean = TRUE,algorithm = c("nlminb"),hessian = c("ropt"))
+```
+    
+```{r}
+summary(NYA_garch)
+```
+    
+    
+       
+Then we would use AR(1) with GARCH(1,1) model with normal innovation.    
+```{r include=FALSE}
+NYA_ar1garch=garchFit(~arma(1,0)+garch(1,1),data=log_return.ts,cond.dist=c("norm"),include.mean=TRUE,algorithm=c("nlminb"),hessian=c("ropt"))
+```
+    
+```{r}
+summary(NYA_ar1garch)
+```
+    
+    
+According to the result above, we would find that the coefficient of AR(1) is not significant, indicating that we would not add AR(1) with GARCH(1,1) if we use normal distribution for the innovation. Hence, we would choose GARCH(1,1) if we use normal distribution for the innovation.    
+Next, we would use t-distribution for the innovation.    
+```{r include=FALSE}
+NYA_garch_t = garchFit(~garch(1,1),data=log_return.ts,cond.dist = c("std"),include.mean = TRUE,algorithm = c("nlminb"),hessian = c("ropt"))
+```
+    
+```{r}
+summary(NYA_garch_t)
+```
+    
+    
+We could find that the coefficient of $\alpha_0$ is not significant. However, the AIC of the GARCH(1,1) with t distribution is -7.179816 which is quite smaller than the the AIC of the GARCH(1,1) with normal distribution. Therefore, based on AIC, we would choose GARCH(1,1) with t distribution.    
+    
+    
+###(b)    
+According to part (a), we would choose GARCH(1,1) with t distribution. The relative VaR is the same as we have computed in Problem 2.    
+
+[1] 0.01198671 0.01232622 0.01265463 0.01297278 0.01328139    
+    
+The relative VaR is 0.01328139.     
+
+
+
+
+
+    
+    
+    

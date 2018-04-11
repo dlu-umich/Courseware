@@ -1,0 +1,144 @@
+---
+output:
+  pdf_document: default
+  html_document: default
+---
+## Stats509 Homework 10
+#### *Di Lu, Apr.11, 2018*
+
+#### 1.
+```{r message=FALSE, warning=FALSE}
+rm(list=ls())
+setwd("C:\\Users\\Di LU\\Desktop\\STATS 509\\hw10")
+X = read.csv("NYA-2015-2017.csv", header = TRUE)
+NYSE_lret = diff(log(X$Adj.Close))
+NYSE_lret.ts = ts(data=NYSE_lret, start = c(2015,1), frequency = 252, names = c("logret"))
+```
+
+(a) Fit a Garch(1,1) with assumption iid normal innovations. We can see the std error of alpha0 = 9.672e-07, alpha1 = 3.761e-02, and beta1 =4.316e-02.
+        Estimate  Std. Error  t value Pr(>|t|)    
+mu     4.249e-04   2.109e-04    2.015  0.04389 *  
+omega  2.951e-06   9.672e-07    3.051  0.00228 ** 
+alpha1 1.752e-01   3.761e-02    4.659 3.18e-06 ***
+beta1  7.800e-01   4.316e-02   18.072  < 2e-16 ***
+
+```{r warning=FALSE}
+library(fGarch)
+model1 = garchFit(formula = ~ garch(1,1), data = NYSE_lret.ts, cond.dist = c("norm"), include.mean = TRUE)
+summary(model1)
+```
+
+Given the estimated parameters, we can specify the half_life of the volatility as 17.
+```{r}
+half_life = ceiling(1 + log(1/2) / log(model1@fit$par[3] + model1@fit$par[4]))
+half_life
+```
+
+(b) Use the plot commands on fGarch packages, we can have the conditional volatility sigma as the first graph and the estimated residuals epsilon as the second graph.
+
+```{r}
+plot(model1, which = 2)
+plot(model1, which = 9)
+```
+
+(c) Diagnostic for GARCH model, we do the qq plot on the standadized residuals. Then can see the it has heaveir tail than normal, especially on the lower side. So we can see the model does not fit the tail quite well.
+```{r}
+qqnorm(model1@residuals/model1@sigma.t)
+qqline(model1@residuals/model1@sigma.t)
+```
+
+(d) 
+Use the t-distribution for the white noise process, we have the specified parameters. And then on diagnostic, we can see x is theoretical data, y is real quantile, then we see the model is bit lighter tail on the high side, and a bit heaiver tail on the low side. This model fits the data relatively well.
+This explained by the market is paniced at the downside, while not very heavy tail on the up side.
+```{r}
+data = model1@residuals/model1@sigma.t
+library(MASS)
+fitdistr(data, "t")
+
+N = 1000
+nuest = 5.40
+quantv = (1/N)*seq(.5,N-.5,1)
+qqplot(qt(quantv,5.4),sort(data),main='QQ plot for t-dist')
+a = lm(qt(c(.25,.75),nuest)~quantile(data,c(.25,.75)))$coefficients[1]
+b = lm(qt(c(.25,.75),nuest)~quantile(data,c(.25,.75)))$coefficients[2]
+abline(-a/b,1/b)
+```
+
+#### 2. 
+(i) We use the GARCH model in 1 and assume the white noise process is normal, we derive the relative VaR as:
+```{r}
+pred = predict(model1, n.ahead = 5)
+VaR_norm = 1-exp(qnorm(0.005,pred$meanForecast,pred$standardDeviation))
+VaR_norm
+```
+
+(ii) We use the GARCH model in 1 and assume the white noise process is t-distribution, we derive the relative VaR as:
+```{r message=FALSE, warning=FALSE, include=FALSE, paged.print=FALSE}
+model_t = garchFit(~garch(1,1),data=NYSE_lret.ts,cond.dist = c("std"),include.mean = TRUE,algorithm = c("nlminb"),hessian = c("ropt"))
+pred_t = predict(model_t,n.ahead=5)
+nuest_t= model_t@fit$coef[5]
+VaR_t = 1-exp(pred_t$meanForecast+pred_t$standardDeviation*sqrt((nuest_t-2)/nuest_t)*qt(0.005,nuest_t))
+```
+
+```{r}
+VaR_t
+```
+
+
+#### 3. 
+(a) 
+We try the combination of AR(p) + GARCH(1,1) and normal/t-distribution for innovations:
+We have model1: GARCH(1,1) with normal innovation.
+```{r warning=FALSE, include=FALSE}
+garch_normal = garchFit(~garch(1,1),data=NYSE_lret.ts,cond.dist = c("norm"),include.mean = TRUE,algorithm = c("nlminb"),hessian = c("ropt"))
+```
+    
+```{r}
+summary(garch_normal)
+```
+    
+We try model2: AR(1) with GARCH(1,1) model with normal innovation.    
+```{r warning=FALSE, include=FALSE}
+ar1garch_normal=garchFit(~arma(1,0)+garch(1,1),data=NYSE_lret.ts,cond.dist=c("norm"),include.mean=TRUE,algorithm=c("nlminb"),hessian=c("ropt"))
+```
+    
+```{r}
+summary(ar1garch_normal)
+```
+    
+Seen from the result above, we would find that the coefficient of AR(1) is not significant, showing that incorporating Ar(1) into GARCH model is not helpful.    
+By comparison, we choose GARCH(1,1) if we use normal distribution for the innovation.    
+
+Next, we would try GARCH(1,1) with t-distribution innovation:
+```{r warning=FALSE, include=FALSE}
+garch_t = garchFit(~garch(1,1),data=NYSE_lret.ts,cond.dist = c("std"),include.mean = TRUE,algorithm = c("nlminb"),hessian = c("ropt"))
+```
+    
+```{r}
+summary(garch_t)
+```
+
+We see that the coefficient of alpha0 is not significant, so GARCH(1,1) does not fit quite well. We keep this model and further try AR(1) + GARCH(1,1):
+```{r warning=FALSE, include=FALSE}
+ar1garch_t=garchFit(~arma(1,0)+garch(1,1),data=NYSE_lret.ts,cond.dist=c("std"),include.mean=TRUE,algorithm=c("nlminb"),hessian=c("ropt"))
+```
+   
+```{r}
+summary(ar1garch_t)
+```
+
+From the result, we can see the alpha0 is also not significant, so AR(1) + GARCH(1,1) does not provide good model.We still look at GARCH(1,1) with t distribution.
+
+So we come to conclusion: the AIC of the GARCH(1,1) with t distribution is -7.179816 which is smaller than the the AIC of the GARCH(1,1) with normal distribution. Therefore, based on AIC, we would choose GARCH(1,1) with t distribution.    
+    
+    
+###(b)    
+According to part (a), we would choose GARCH(1,1) with t distribution. The relative VaR is the same as we have computed in Problem 2.
+
+```{r}
+VaR_t
+```
+
+
+
+
